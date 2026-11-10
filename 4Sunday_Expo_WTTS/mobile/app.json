@@ -1,0 +1,1 @@
+{"expo":{"name":"4Sunday","slug":"4sunday","version":"1.0.0","orientation":"default","userInterfaceStyle":"dark","ios":{"supportsTablet":true},"android":{},"web":{"bundler":"metro","output":"single"},"plugins":["expo-secure-store"]}}
