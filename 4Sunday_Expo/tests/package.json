@@ -1,0 +1,1 @@
+{"name":"4sunday-transport-tests","private":true,"scripts":{"test":"node worker.cjs"},"devDependencies":{"playwright":"1.65.0"}}

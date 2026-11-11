@@ -1,6 +1,0 @@
-mobile/node_modules/
-mobile/.expo/
-mobile/dist/
-mobile/.env
-server/config.php
-*.cookies
