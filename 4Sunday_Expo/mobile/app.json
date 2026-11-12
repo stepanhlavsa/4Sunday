@@ -8,13 +8,21 @@
     "ios": {
       "supportsTablet": true
     },
-    "android": {},
+    "android": {
+      "package": "cz.stepanhlavsa.foursunday",
+      "versionCode": 1
+    },
     "web": {
       "bundler": "metro",
       "output": "single"
     },
     "plugins": [
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ed309f50-171f-46e1-92c2-b33342c688c3"
+      }
+    }
   }
 }
