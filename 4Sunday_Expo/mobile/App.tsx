@@ -31,6 +31,7 @@ import {
 } from "./src/api";
 import { shareFile } from "./src/files";
 import TransportHost from "./src/TransportHost";
+import DraggableSongs, { DragScroll } from "./src/DraggableSongs";
 import { demoEvents, demoSongs, demoTeam, demoMenu } from "./src/demo";
 type Tab = "events" | "songs" | "team" | "menu";
 type Preview = {
@@ -92,7 +93,7 @@ function Main() {
     [songs, setSongs] = useState<Song[]>([]),
     [team, setTeam] = useState<TeamEvent[]>([]),
     [menu, setMenu] = useState<MenuItem[]>([]);
-  const [busy, setBusy] = useState(false),
+  const [working, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [preview, setPreview] = useState<Preview | null>(null);
@@ -100,7 +101,93 @@ function Main() {
     text: string;
     run: () => Promise<void>;
   } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const busy = working || dragging;
+  const planScroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const scrollInfo = useRef({ offset: 0, height: 0, content: 0, top: 0 });
+  const dragScroll: DragScroll = {
+    offset: () => scrollInfo.current.offset,
+    begin: () => {
+      planScroll.current?.measureInWindow((_x, y, _w, h) => {
+        scrollInfo.current.top = y;
+        scrollInfo.current.height = h;
+      });
+    },
+    step: (pageY) => {
+      const info = scrollInfo.current;
+      const edge = 64;
+      const distance =
+        pageY < info.top + edge
+          ? -Math.min(1, (info.top + edge - pageY) / edge)
+          : pageY > info.top + info.height - edge
+            ? Math.min(1, (pageY - info.top - info.height + edge) / edge)
+            : 0;
+      const next = Math.max(
+        0,
+        Math.min(
+          Math.max(0, info.content - info.height),
+          info.offset + distance * 16,
+        ),
+      );
+      if (next !== info.offset) {
+        info.offset = next;
+        planScroll.current?.scrollTo({ y: next, animated: false });
+      }
+      return next;
+    },
+  };
   const lock = useRef(false);
+  async function reorderEvent(event: EventItem, next: Song[]) {
+    if (lock.current) return;
+    if (demo) {
+      setEvents((items) =>
+        items.map((e) => (e.eid === event.eid ? { ...e, songs: next } : e)),
+      );
+      setNotice("Ukázka: pořadí bylo změněno pouze v aplikaci.");
+      return;
+    }
+    if (!session) return;
+    await run(async () => {
+      setEvents((items) =>
+        items.map((e) => (e.eid === event.eid ? { ...e, songs: next } : e)),
+      );
+      setNotice("Ukládám pořadí písní…");
+      try {
+        const result = await request<{
+          events: EventItem[];
+          menu: MenuItem[];
+          message: string;
+        }>(session, "reorder", {
+          eid: event.eid,
+          order: next.map((s) => s.sid),
+          previousOrder: event.songs.map((s) => s.sid),
+        });
+        setEvents(result.events);
+        setMenu(result.menu);
+        setNotice(result.message);
+      } catch (error) {
+        setNotice("");
+        // Read back after all failures: a timeout may occur AFTER WTTS saved.
+        // Never repeat the write automatically or promise that rollback undid it.
+        setEvents((items) =>
+          items.map((e) => (e.eid === event.eid ? event : e)),
+        );
+        try {
+          const fresh = await request<{
+            events: EventItem[];
+            menu: MenuItem[];
+          }>(session, "events");
+          setEvents(fresh.events);
+          setMenu(fresh.menu);
+        } catch {
+          setNotice(
+            "Aktuální stav WTTS se nepodařilo načíst. Zobrazuji původní pořadí; před dalším přesunem stiskněte Obnovit.",
+          );
+        }
+        throw error;
+      }
+    });
+  }
   function clearData() {
     setEvents([]);
     setSongs([]);
@@ -497,7 +584,7 @@ function Main() {
           <Text style={s.text}>{notice}</Text>
         </View>
       )}
-      {busy && (
+      {working && (
         <View style={s.loading}>
           <ActivityIndicator color="#68d6ba" />
           <Text style={s.muted}>Komunikuji s WTTS…</Text>
@@ -644,7 +731,21 @@ function Main() {
               }
             />
           ) : (
-            <ScrollView contentContainerStyle={s.content}>
+            <ScrollView
+              ref={planScroll}
+              contentContainerStyle={s.content}
+              scrollEnabled={!dragging}
+              scrollEventThrottle={16}
+              onScroll={(e) => {
+                scrollInfo.current.offset = e.nativeEvent.contentOffset.y;
+              }}
+              onLayout={(e) => {
+                scrollInfo.current.height = e.nativeEvent.layout.height;
+              }}
+              onContentSizeChange={(_w, h) => {
+                scrollInfo.current.content = h;
+              }}
+            >
               {tab === "events" && (
                 <>
                   {events.map((event) => (
@@ -695,7 +796,14 @@ function Main() {
                           />
                         )}
                       </View>
-                      {event.songs.map((song, i) => songCard(song, i))}
+                      <DraggableSongs
+                        songs={event.songs}
+                        disabled={busy || !event.links.plan}
+                        scroll={dragScroll}
+                        onDragging={setDragging}
+                        onReorder={(next) => void reorderEvent(event, next)}
+                        renderSong={(song, i) => songCard(song, i)}
+                      />
                     </View>
                   ))}
                   {!events.length && !busy && (
@@ -704,8 +812,8 @@ function Main() {
                     </Text>
                   )}
                   <Text style={s.muted}>
-                    Řazení písní na WTTS zatím není podporováno. Pořadí odpovídá
-                    načtenému plánu.
+                    Píseň přesuňte tažením za ☰. Po puštění se nové pořadí
+                    automaticky uloží na WTTS.
                   </Text>
                 </>
               )}

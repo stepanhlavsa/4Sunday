@@ -20,6 +20,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
  const top='<b id="top_menu_user_name">Stepan</b>'+menu;
  const login=()=>'<form id="sign-in" action="'+(evil?'https://evil.invalid/steal':'?command=sign-in')+'"><input name="csrf" type="hidden" value="nonce"><input name="username_email"><input type="password" name="password"></form>';
  const events=top+'<div class="table_container"><h2 class="table_title">Neděle</h2><table class="table_menubar"><tr><td><a href="?command=list-songs&eid=7">Plán</a><a href="/render-event/PDF/7/?keep=1">PDF</a></td></tr></table><table class="centered_list_table"><tr><td>1</td><td class="td-alligned-left"><a>Chvála</a></td><td><a href="/render-song/XML/11/">XML</a><a href="/render-song/PDF/11/?transpose=2">PDF</a></td><td>D</td></tr></table></div>';
+ let order=[11,12,13],rpcMode='ok',rpcCalls=0;
+ const eventPage=()=>events.replace(/<table class="centered_list_table">[\s\S]*?<\/table>/, '<table class="centered_list_table">'+order.map(sid=>'<tr><td>1</td><td class="td-alligned-left"><a>Chvála</a></td><td><a href="/render-song/XML/'+sid+'/">XML</a><a href="/render-song/PDF/'+sid+'/?transpose=2">PDF</a></td><td>D</td></tr>').join('')+'</table>');
  const catalog=()=>top+'<table class="centered_list_table"><tbody>'+(!removed?'<tr><td>1</td><td>Chvála</td><td>D</td><td><a href="/render-song/XML/11/">XML</a></td><td><a href="/render-song/PDF/11/?transpose=2">PDF</a></td><td></td><td><a onclick="ajax=attachments">Přílohy</a></td><td><a onclick="ajax=edit-song">Editovat</a></td><td><a onclick="toggle-event-song-schedule">Ano</a></td><td><a onclick="move-song-to-drawer">Šuplík</a></td></tr>':'')+'</tbody></table>';
  const pdf=Buffer.concat([Buffer.from('%PDF-1.4\n'),Buffer.alloc(100000,137)]);
  await page.addInitScript(()=>{window.messages=[];window.ReactNativeWebView={postMessage:m=>window.messages.push(JSON.parse(m))};});
@@ -35,7 +37,14 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
   } else if(!signed)body=login();
   else {
    assert.match(r.headers().cookie||'',/session=valid/);
-   if(cmd==='scheduled-events')body=events;
+   if(u.pathname==='/server.JSONRPC'){
+    rpcCalls++;assert.equal(r.headers()['content-type'],'application/json');
+    const payload=JSON.parse(r.postData());assert.equal(payload.method,'event_songs_set_order');assert.equal(payload.params[0],7);
+    if(rpcMode==='ok'||rpcMode==='lost')order=payload.params[1];
+    if(rpcMode==='lost')return route.abort('failed');
+    body=rpcMode==='html'?'<html>Error</html>':JSON.stringify({id:1,result:rpcMode==='false'?false:null,error:rpcMode==='error'?{code:403,message:'Denied'}:null});
+   }
+   else if(cmd==='scheduled-events')body=eventPage();
    else if(cmd==='list-songs')body=catalog();
    else if(cmd==='list-team-events')body=top+'<table class="centered_list_table"><tbody><tr><td>1</td><td>12.11.</td><td><a href="?command=list-songs&eid=7">Neděle</a></td><td><a onclick="toggle-event-scheduler">Já</a></td><td><a onclick="cancel-event">Zrušit</a></td></tr></tbody></table>';
    else if(cmd==='move-song-to-drawer'){removed=true;body=top;}
@@ -54,6 +63,18 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
  }
  assert.equal((await call('login')).ok,true);
  const e=await call('events');assert.equal(e.events[0].eid,7);assert.equal(e.events[0].songs[0].sid,11);assert.equal(e.events[0].songs[0].key,'D');assert.equal(posts,1);
+ const reorder=(next,previous=order.slice(),eid=7)=>call('reorder',{eid,order:next,previousOrder:previous});
+ assert.equal((await reorder([13,11,12])).ok,true);assert.deepEqual(order,[13,11,12]);assert.equal(rpcCalls,1);
+ assert.equal((await reorder([13,11,12])).ok,true);assert.equal(rpcCalls,1); // no-op
+ assert.equal((await reorder([11,12,13],[11,12,13])).status,409); // stale client
+ assert.equal((await reorder([11,11,13])).status,400);
+ assert.equal((await reorder([11,12,999])).status,400);
+ assert.equal((await reorder([11,12])).status,400);
+ assert.equal((await reorder([11,12,13],order,999)).status,403);assert.equal(rpcCalls,1);
+ for(const mode of ['html','error','false','ignored']){rpcMode=mode;assert.equal((await reorder([11,12,13])).ok,false);}
+ rpcMode='lost';const count=rpcCalls;assert.equal((await reorder([11,12,13])).ok,false);assert.equal(rpcCalls,count+1); // no retry
+ assert.deepEqual((await call('events')).events[0].songs.map(x=>x.sid),[11,12,13]); // saved despite transport failure
+ rpcMode='ok';
  const songs=await call('songs',{eid:7});assert.equal(songs.songs[0].schedule,true);assert.equal(songs.songs[0].attachments,true);
  assert.equal((await call('team_events')).events[0].toggle,true);
  const file=await call('export',{kind:'song',id:11,format:'PDF'});assert.equal(file.ok,true);assert.deepEqual(Buffer.from(file.base64,'base64'),pdf);assert.ok(requests.some(x=>x.endsWith('/render-song/PDF/11/?transpose=2')));
@@ -71,6 +92,6 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
  assert.equal((await call('login')).ok,true);
  signed=false;assert.equal((await call('events')).ok,true); // expired session reauth
  assert.equal((await call('logout')).ok,true);assert.equal(signed,false);
- console.log('PASS: login, cookies, hidden fields, wrong password, expired session, events, menu, catalog, planning permissions, drawer, binary PDF chunks, XML, safe links, hostile form, invalid PDF, logout.');
+ console.log('PASS: reorder persistence, no-op, stale state, duplicate/missing/foreign IDs, RPC errors/false/HTML, read-back mismatch, lost response without retry; login, cookies, hidden fields, wrong password, expired session, events, menu, catalog, planning permissions, drawer, binary PDF chunks, XML, safe links, hostile form, invalid PDF, logout.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,4 +1,4 @@
-# 4Sunday 1.1 – přímé připojení k WTTS
+# 4Sunday 1.2 – přímé připojení k WTTS
 
 Mobilní aplikace pro Android a iOS v React Native + Expo SDK 58. Komunikuje pouze s `https://www.wtts.org/`. Nepotřebuje pomocný PHP skript, vlastní API, hosting ani přímé připojení do MySQL. PHP funkce provozované samotným WTTS samozřejmě nadále používá.
 
@@ -37,15 +37,26 @@ HTML získané z WTTS se nezobrazuje ani nespouští jako program. Aplikace z n�
 - Plánování/odebrání písně, přesun do šuplíku, změna plánujícího a zrušení události podle dostupných oprávnění. Zápisy vyžadují potvrzení v aplikaci.
 - Informativní náhled příloh a editace. Ukládání editace a správa příloh nejsou implementovány.
 
-Změna pořadí písní zůstává vypnutá, protože její požadavek nebyl ověřen ani v dodaném vzoru. Ostatní položky menu se otevírají na WTTS v externím prohlížeči, který má vlastní přihlášení. CAPTCHA a další interaktivní ověření při loginu nejsou podporovány.
+Ostatní položky menu se otevírají na WTTS v externím prohlížeči, který má vlastní přihlášení. CAPTCHA a další interaktivní ověření při loginu nejsou podporovány.
 
 Po síťové chybě při zápisu aplikace požadavek sama neopakuje. Nejprve obnovte seznam a ověřte, zda WTTS změnu provedlo.
+
+## Přetahování písní v plánu
+
+V záložce **Plán** chyťte píseň za úchyt **☰** vlevo a přetáhněte ji nahoru nebo dolů v rámci stejné události. Není potřeba dlouhé podržení ani tlačítko Uložit. U okraje seznamu se obsah automaticky posouvá. Běžným tažením po kartě lze dál posouvat stránku; tlačítka PDF/XML zůstávají funkční.
+
+Po puštění se odešle nové pořadí přímo na WTTS. Aplikace před zápisem porovná původní pořadí s aktuálním plánem a po zápisu znovu ověří uložené pořadí. Při chybě se pokusí načíst skutečný stav. Pokud se ani to nepodaří, zobrazí původní pořadí a upozornění; stiskněte **Obnovit** před dalším přesunem. Síťový výpadek sám o sobě neznamená, že WTTS změnu neprovedlo.
+
+Přesun mezi událostmi není podporován. U seznamu s méně než dvěma písněmi nebo s nejednoznačnými ID nejsou úchyty dostupné. Dostupnost zápisu dále určuje oprávnění účtu na WTTS. V ukázkovém režimu se mění pouze lokální pořadí.
+
+Technicky jde o POST JSON na `https://www.wtts.org/server.JSONRPC` s metodou `event_songs_set_order` a parametry `[event_id, ordered_songs_ids]`. Adresa a signatura byly ověřeny ve veřejném JavaScriptu WTTS a jeho seznamu RPC metod. Starší pomocný PHP skript uváděl neověřenou adresu `?command=json-rpc`; aplikace ji nepoužívá.
 
 ## Úpravy kódu
 
 - `mobile/App.tsx`: obrazovky a styly; soubor je rozformátovaný pro čitelnost.
 - `mobile/src/workerSource.ts`: přímé požadavky, přihlášení a parsování WTTS.
 - `mobile/src/TransportHost.native.tsx`: místní WebView a přenos zpráv do React Native.
+- `mobile/src/DraggableSongs.tsx`: dotykové přetahování a automatické posouvání plánu.
 - `mobile/src/bridge.ts`: spojení obrazovek s transportem.
 - `mobile/src/api.ts`: rozhraní požadavků a SecureStore; název souboru neznamená externí API.
 - `mobile/src/files.ts`: ukládání a sdílení exportů.
@@ -68,6 +79,8 @@ cd ..\tests
 npm.cmd ci
 npx.cmd playwright install chromium
 node worker.cjs
+# Po vytvoření webového exportu lze ověřit i dotykové přetažení v Chromium:
+node ui.cjs
 ```
 
 Nejprve musí být instalovány také závislosti ve složce `mobile`. Testy se nepřipojují ke skutečnému WTTS a nepoužívají vaše údaje. Podrobný rozsah a neověřené části jsou v `VALIDACE.md`.
@@ -78,7 +91,7 @@ Nejprve musí být instalovány také závislosti ve složce `mobile`. Testy se 
 2. Vyhledejte píseň, stáhněte PDF a otevřete uložený soubor. Ověřte textový náhled.
 3. Zavřete a znovu spusťte aplikaci; ověřte zapamatování přihlášení.
 4. Odhlaste se. Zkuste chybné heslo a potom správné.
-5. Teprve poté ověřte plánování na vhodné testovací události. Ověřte výsledek také na webu.
+5. Na vhodné testovací události přesuňte píseň za úchyt ☰. Ověřte pořadí po stisku Obnovit i přímo na webu WTTS. Pak ověřte také plánování.
 6. Stejný postup proveďte zvlášť na Androidu a iOS, zejména kvůli cookies WebView a sdílení souborů.
 
 Živé přihlášení a běh na skutečných mobilních zařízeních nebyly při přípravě tohoto balíčku ověřeny. Úspěšné automatické testy ani export nejsou jejich náhradou.

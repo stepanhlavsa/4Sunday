@@ -1,4 +1,4 @@
-# Ověření verze 1.1 (přímé WTTS)
+# Ověření verze 1.2 (přímé WTTS)
 
 ## Provedeno
 
@@ -11,10 +11,17 @@
 - Webový ukázkový režim při šířce 390 px: navigace, hledání bez diakritiky, rozbalení písně, náhled, přechod do plánování a odhlášení. Bez zachycených běhových chyb JavaScriptu.
 - Zdrojový kód mobilu již neobsahuje adresu pomocného PHP API ani nastavení takového serveru. Serverová složka byla odstraněna.
 
+## Změna pořadí – další ověření verze 1.2
+
+- Veřejný JavaScript WTTS nastavuje `rpc.ServiceProxy.__serviceURL` na `server.JSONRPC`. Read-only volání `service_get_methods_with_parameters` potvrzuje signaturu `event_songs_set_order($event_id, $ordered_songs_ids)`.
+- Simulovaný RPC: správné parametry a cookies, potvrzení změny následným načtením, přesun beze změny bez zápisu, odmítnutí zastaralého seznamu, duplicitních/chybějících/cizích ID a neznámé události.
+- Simulované chyby: HTTP odpověď obsahující HTML, RPC error, result false, potvrzení bez skutečné změny, ztracená odpověď po úspěšném zápisu. Žádné automatické opakování zápisu.
+- Ukázkové UI: gesto přetažení pomocí ukazatele i emulovaného dotyku v Chromium změnilo pořadí; ověřeno automatické posouvání u okraje; původní navigace, vyhledávání a exportní náhledy fungují dál.
+
 ## Rozsah a omezení
 
 Test transportu používá simulované HTML odpovědi podle struktury dodaného `wtts.php`. Neověřuje aktuální HTML přihlášeného WTTS účtu. Probíhá v Chromium se skutečnými browser cookies, nikoli v Android WebView nebo WKWebView na iPhonu.
 
 Nebylo provedeno živé přihlášení do WTTS, zkušební zápisy do skutečného účtu, běh v Expo Go na fyzických telefonech ani systémové uložení/sdílení PDF na Androidu/iOS. Tyto části je nutné ověřit postupem v README. Případné změny HTML WTTS, nastavení cookies, ochrana proti automatizaci nebo odlišné chování místního WebView mohou vyžadovat úpravu transportu.
 
-Aplikace neimplementuje ukládání editace písní, správu příloh ani změnu pořadí písní; tyto funkce nebyly dokončeny ani v předchozí verzi. Web podporuje pouze ukázku.
+Aplikace neimplementuje ukládání editace písní, ani správu příloh; tyto funkce nebyly dokončeny ani v předchozí verzi. Web podporuje pouze ukázku.

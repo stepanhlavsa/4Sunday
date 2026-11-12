@@ -53,7 +53,7 @@ export const WORKER = String.raw`
       const response = await fetch(url, {
         method: options.body === undefined ? 'GET' : 'POST',
         credentials: 'include', cache: 'no-store', signal: controller.signal,
-        headers: options.body === undefined ? (options.ajax ? {'X-Requested-With':'XMLHttpRequest'} : {}) : {'Content-Type':'application/x-www-form-urlencoded'},
+        headers: options.body === undefined ? (options.ajax ? {'X-Requested-With':'XMLHttpRequest'} : {}) : (options.json ? {'Content-Type':'application/json','Accept':'application/json'} : {'Content-Type':'application/x-www-form-urlencoded'}),
         body: options.body, redirect: 'follow',
       });
       if (!safe(response.url)) fault('WTTS přesměrovalo požadavek mimo povolený server.');
@@ -216,7 +216,27 @@ export const WORKER = String.raw`
       if(format==='XML'&&(!text.includes('<')||doc(text).querySelector('#sign-in,#welcome_guest_screen')))fault('WTTS nevrátilo obsah písně.',502);
       return {ok:true,base64:base64(bytes),filename:'4sunday-'+kind+'-'+id+'.'+format.toLowerCase(),mime:format==='PDF'?'application/pdf':'application/octet-stream',text:format==='XML'?preview(text):''};
     }
-    if(action==='reorder')fault('Ukládání pořadí nebylo ve vzorovém PHP ověřeno.',501);
+    if(action==='reorder'){
+      const eid=positive(p.eid),event=events.find(e=>e.eid===eid);
+      if(!event || !event.links.plan)fault('Událost není dostupná pro změnu pořadí.',403);
+      const current=event.songs.map(s=>s.sid);
+      const valid=ids=>Array.isArray(ids)&&ids.length===current.length&&ids.every(x=>Number.isSafeInteger(x)&&x>0)&&new Set(ids).size===ids.length;
+      const same=(a,b)=>a.length===b.length&&a.every((x,i)=>x===b[i]);
+      if(!valid(current)||current.length<2)fault('Seznam písní nelze bezpečně seřadit. Obnovte plán.',409);
+      if(!valid(p.order)||!p.order.every(x=>current.includes(x)))fault('Neplatné pořadí písní.',400);
+      if(!valid(p.previousOrder)||!same(current,p.previousOrder))fault('Plán mezitím změnil jiný uživatel. Načtěte aktuální seznam a přetažení zopakujte.',409);
+      if(same(current,p.order))return {ok:true,events,menu,message:'Pořadí se nezměnilo.'};
+      // Endpoint and positional signature confirmed in WTTS public JS and
+      // service_get_methods_with_parameters; no remote scripts are executed.
+      const raw=await net(BASE+'server.JSONRPC',{json:true,body:JSON.stringify({method:'event_songs_set_order',params:[eid,p.order],id:1})});
+      let rpc;try{rpc=JSON.parse(raw);}catch(_){fault('WTTS nevrátilo potvrzení změny pořadí. Obnovte plán před dalším pokusem.',502);}
+      if(!rpc||rpc.id!==1||rpc.error!=null||!Object.hasOwn(rpc,'result')||rpc.result===false)
+        fault('WTTS odmítlo nebo nepotvrdilo změnu pořadí. Ověřte oprávnění a obnovte plán.',502);
+      // HTTP 200 / result:null is not enough: read actual persisted order.
+      const updated=await page(EVENTS),fresh=parseEvents(updated),saved=fresh.find(e=>e.eid===eid);
+      if(!saved||!same(saved.songs.map(s=>s.sid),p.order))fault('Načtené pořadí na WTTS neodpovídá požadované změně. Plán mohl změnit jiný uživatel.',409);
+      return {ok:true,events:fresh,menu:parseMenu(updated),message:'Pořadí písní bylo uloženo na WTTS.'};
+    }
     fault('Neznámá operace.',404);
   }
   function send(id,result){
